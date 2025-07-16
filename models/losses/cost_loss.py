@@ -86,6 +86,8 @@ class CostLoss(nn.Module):
 
     def forward(self, outputs, side):
         pred = outputs[self.pred_n.format(side)]
+        
+        
         targets = []
         confis = []
         for target_n in self.targets_n:
@@ -143,7 +145,10 @@ class CostLoss(nn.Module):
             log_softmax = torch.log(pred + 1e-5)
             loss_map += self.ce_rate * ( -(log_softmax * label).sum(dim=1, keepdim=True) + (torch.log(label + 1e-5) * label).sum(dim=1, keepdim=True))
         if self.l1_rate > 0:
+            
             l1_loss_map = torch.abs(pred - label)
+            
+            
             if self.t_l1 > 0:
                 if self.total_tl1:
                     l1_loss_map = l1_loss_map.sum(1, True)

@@ -7,6 +7,8 @@ from torchvision.models.vgg import vgg19
 
 from models.backbones.resnet import ResNet_Backbone
 from models.backbones.swin import get_orgwintrans_backbone
+from models.backbones.dinov2_dpt import get_dinov2_dpt_backbone
+from models.backbones.dav2_melo import get_dav2_melo_backbone
 from models.base_model import Base_of_Model
 from models.decoders.dual_path_decoder import DPDecoder
 from utils import platform_manager
@@ -56,6 +58,8 @@ class TiO_Depth(Base_of_Model):
         self.params_trained = params_trained
         self.set_SCALE = set_SCALE
         self.stereo_SCALE = 5.4 if (self.out_ch == 1) else 1
+        # Save the encoder name for feature processing checks
+        self.encoder_name = encoder_name
 
         self.net_module = {}
         
@@ -72,6 +76,14 @@ class TiO_Depth(Base_of_Model):
         
         if 'orgSwin' in encoder_name:
             self.net_module['encoder'], enc_ch_num = get_orgwintrans_backbone(
+                encoder_name, True)
+            enc_ch_num = copy.deepcopy(enc_ch_num)
+        elif 'melo' in encoder_name.lower():
+            self.net_module['encoder'], enc_ch_num = get_dav2_melo_backbone(
+                encoder_name, True, 4, 4)
+            enc_ch_num = copy.deepcopy(enc_ch_num)
+        elif 'dinov2' in encoder_name.lower():
+            self.net_module['encoder'], enc_ch_num = get_dinov2_dpt_backbone(
                 encoder_name, True)
             enc_ch_num = copy.deepcopy(enc_ch_num)
         elif 'Res' in encoder_name:
@@ -151,13 +163,46 @@ class TiO_Depth(Base_of_Model):
                 used_path = self.used_out_mode
             else:
                 used_path = self.out_mode[0]
+        
         if used_path == 'Mono':
             t_side = self.set_train_side if self.is_train else 's'
             feats = self.net_module['encoder'](x)
+            
+            # Process features for DINOv2+DPT backbone if used
+            if hasattr(self, 'encoder_name') and 'dinov2' in self.encoder_name.lower():
+                
+                # 计算期望的尺寸
+                target_sizes = [
+                            (126, 420),  # 1/2下采样
+                            (63, 210),   # 1/4下采样 
+                            (31, 105),   # 1/8下采样 (取整为32)
+                            (16, 53)     # 1/16下采样 (取整为16)
+                        ]
+                
+                # 对特征进行插值调整
+                processed_feats = []
+                
+                for i, feat in enumerate(feats):
+                    resized_feat = F.interpolate(
+                        feat, 
+                        size=target_sizes[i],
+                        mode='bilinear', 
+                        align_corners=False
+                    )
+                    processed_feats.append(resized_feat)
+                
+                feats = feats#processed_feats
+            
+            #啊==1
+            #print("MONO")
+            #for ele in feats:
+            #    print(ele.shape)
             outputs['enc_feats_{}'.format(t_side)] = feats
             outputs['enc_feats_{}_wog'.format(t_side)] =\
                 [feat.detach() for feat in feats]
-        
+            
+            
+            
             outputs = self._forward_decoder_mono(outputs,
                                                  feats,
                                                  x.shape,
@@ -172,26 +217,75 @@ class TiO_Depth(Base_of_Model):
             with torch.no_grad():
                 if 'enc_feats_s_wog' not in outputs:
                     feats = self.net_module['encoder'](x[:, :3, ...])
-                    outputs['enc_feats_s_wog'] = feats
-                    outputs = self._forward_decoder_mono(outputs,
-                                                         feats,
-                                                         x.shape,
-                                                         's')
+                    
+                    # Process features for DINOv2+DPT backbone if used
+                    if hasattr(self, 'encoder_name') and 'dinov2' in self.encoder_name.lower():
+                        
+                        # 计算期望的尺寸
+                        target_sizes = [
+                            (126, 420),  # 1/2下采样
+                            (63, 210),   # 1/4下采样 
+                            (31, 105),   # 1/8下采样 (取整为32)
+                            (16, 53)     # 1/16下采样 (取整为16)
+                        ]
+                        
+                        # 对特征进行插值调整
+                        processed_feats = []
+                        for i, feat in enumerate(feats):
+                            resized_feat = F.interpolate(
+                                feat, 
+                                size=target_sizes[i],
+                                mode='bilinear', 
+                                align_corners=False
+                            )
+                            processed_feats.append(resized_feat)
+                        
+                        feats = feats#processed_feats
+                    #print("stereo1")
+                    #for ele in feats:
+                    #    print(ele.shape)
+                    outputs['enc_feats_s_wog'] = [feat.detach() for feat in feats]
+                    outputs = self._forward_decoder_mono(outputs, feats, x.shape, 's')
+                    
                 if 'enc_feats_o_wog' not in outputs:
                     feats = self.net_module['encoder'](x[:, 3:, ...])
-                    outputs['enc_feats_o_wog'] = feats
-                    outputs = self._forward_decoder_mono(outputs,
-                                                         feats,
-                                                         x.shape,
-                                                         'o')
-        
-            if self.inputs and 'direct' in self.inputs:
+                    
+                    # Process features for DINOv2+DPT backbone if used
+                    if hasattr(self, 'encoder_name') and 'dinov2' in self.encoder_name.lower():
+                        
+                        # 计算期望的尺寸
+                        target_sizes = [
+                            (126, 420),  # 1/2下采样
+                            (63, 210),   # 1/4下采样 
+                            (31, 105),   # 1/8下采样 (取整为32)
+                            (16, 53)     # 1/16下采样 (取整为16)
+                        ]
+                        
+                        # 对特征进行插值调整
+                        processed_feats = []
+                        for i, feat in enumerate(feats):
+                            resized_feat = F.interpolate(
+                                feat, 
+                                size=target_sizes[i],
+                                mode='bilinear', 
+                                align_corners=False
+                            )
+                            processed_feats.append(resized_feat)
+                        
+                        feats = feats
+                    #print("stereo1")
+                    #for ele in feats:
+                    #    print(ele.shape)    
+                    outputs['enc_feats_o_wog'] = [feat.detach() for feat in feats]
+                    outputs = self._forward_decoder_mono(outputs, feats, x.shape, 'o')
+                
+            # 获取方向信息
+            if hasattr(self, 'inputs') and self.inputs and 'direct' in self.inputs:
                 directs = self.inputs['direct']
             else:
-                directs = torch.tensor([1]).to(x)
-            outputs = self._forward_decoder_stereo(outputs,
-                                                   x.shape,
-                                                   directs)
+                directs = torch.tensor([1]).to(x.device)
+                
+            outputs = self._forward_decoder_stereo(outputs, x.shape, directs)
             pred = outputs['stereo_depth_0_s']
             outputs['sdepth'] = pred
             pred_disp = outputs['stereo_disp_0_s']
@@ -201,6 +295,11 @@ class TiO_Depth(Base_of_Model):
             t_side = 's'
             if 'enc_feats_{}_wog'.format(t_side) not in outputs:
                 feats = self.net_module['encoder'](x)
+                # 处理 DINOv2 特征
+                if hasattr(self, 'encoder_name') and 'dinov2' in self.encoder_name.lower():
+                    # 保持与161-193行一致的处理逻辑
+                    processed_feats = feats
+                    feats = processed_feats
                 outputs['enc_feats_{}_wog'.format(t_side)] = feats
             else:
                 feats = outputs['enc_feats_{}_wog'.format(t_side)]
@@ -250,9 +349,12 @@ class TiO_Depth(Base_of_Model):
             loss_sides = [t_side]
             outputs = self._forward_proj(outputs, 'mono', t_side)
         elif used_path == 'Stereo':
+            
             for t_side in self.stereo_train_sides:
+               
                 outputs = self._forward_proj(outputs, 'stereo', t_side)
             loss_sides = self.stereo_train_sides
+         
         elif used_path == 'Refine':
             t_side = 's'
             loss_sides = [t_side]
@@ -329,9 +431,13 @@ class TiO_Depth(Base_of_Model):
 
     def _forward_decoder_mono(self, outputs, feats, img_shape, t_side, with_mo=False, name=''):
         depth_scale = img_shape
+        #for ele in feats:
+        #    print(ele.shape)
+        
         raw_outputs =  self.net_module['decoder'](feats, depth_scale, with_mo=with_mo)
         
         mono_outputs = raw_outputs[0]
+        
         volume_dk = self.volume_dk
         d2d = self.d2d
         
@@ -385,11 +491,20 @@ class TiO_Depth(Base_of_Model):
             features.append([outputs['enc_feats_s_wog'][f_idx],
                              outputs['enc_feats_o_wog'][f_idx]])
         
-        directs = -directs
-        directs = directs.unsqueeze(1).unsqueeze(1).unsqueeze(1)
+        # 检查directs的类型并适当处理
+        if isinstance(directs, list):
+            # 如果是列表(如['s', 'o'])，创建一个表示方向的张量
+            # 1表示从左到右，-1表示从右到左
+            direction_tensor = torch.tensor([1.0]).to(features[0][0].device)
+        else:
+            # 原始代码处理方式
+            direction_tensor = -directs
+            
+        # 将方向张量调整为正确的形状
+        direction_tensor = direction_tensor.unsqueeze(1).unsqueeze(1).unsqueeze(1)
         
         raw_outputs = self.net_module['decoder'](
-            features, depth_scale, directs, out_two_side=True)
+            features, depth_scale, direction_tensor, out_two_side=True)
 
         costs = raw_outputs[1]
         for k, v in costs.items():
@@ -413,11 +528,11 @@ class TiO_Depth(Base_of_Model):
                 p_volume = F.softmax(d_volume, dim=2)
                 disp = (p_volume * volume_dk).sum(dim=2)
                 depth = d2d / disp
-                outputs['{}_dvolume_{}_{}'.format('stereo', 0, out_side)] =\
-                    d_volume.squeeze(1)
+            outputs['{}_dvolume_{}_{}'.format('stereo', 0, out_side)] =\
+                d_volume.squeeze(1)
      
-                outputs['{}_pvolume_{}_{}'.format('stereo', 0, out_side)] = \
-                    p_volume.squeeze(1).detach()
+            outputs['{}_pvolume_{}_{}'.format('stereo', 0, out_side)] = \
+                p_volume.squeeze(1).detach()
             outputs['{}_disp_{}_{}'.format('stereo', 0, out_side)] = disp
             outputs['{}_depth_{}_{}'.format('stereo', 0, out_side)] = depth
 
@@ -480,12 +595,67 @@ class TiO_Depth(Base_of_Model):
         if out_name == 'stereo':
             # get cost guide
             tmp_cost_scales = [int(n) if len(n) == 1 else int(n[0]) for n in self.decoder_name.split('-')[1:]]
+            
             tmp_p_volume = outputs['mono_pvolume_0_{}'.format(t_side)].squeeze(1)
-            for i in range(1, 5):
-                tmp_p_volume = F.interpolate(tmp_p_volume, [s//2 for s in tmp_p_volume.shape[2:]],
-                                                mode='bilinear', align_corners=True)
+            
+            
+            
+            #原始代码
+            # for i in range(1, 5):
+            #     tmp_p_volume = F.interpolate(tmp_p_volume, [s//2 for s in tmp_p_volume.shape[2:]],
+            #                                     mode='bilinear', align_corners=True)
+            #     outputs['{}_pvolume_cost_{}_{}'.format('mono', i, t_side)] = tmp_p_volume
+            # 假设原始尺寸为 s_orig
+            
+
+
+            # #vit 特殊版
+            # s_orig = tmp_p_volume.shape[2:]  # 保存原始尺寸
+
+            # # 计算基准单位 (1/14 的尺寸)
+            # base_units = [s // 14 for s in s_orig]
+
+            # # 定义倍率对应的因子
+            # scale_factors = [8, 4, 2, 1]  # 分别对应 1/1.75, 1/3.5, 1/7, 1/14
+
+            # for i, factor in enumerate(scale_factors, 1):
+            #     # 计算目标尺寸为整数
+            #     target_size = [unit * factor for unit in base_units]
+                
+            #     # 下采样
+            #     tmp_p_volume = F.interpolate(tmp_p_volume, target_size,
+            #                             mode='bilinear', align_corners=True)
+            #     outputs['{}_pvolume_cost_{}_{}'.format('mono', i, t_side)] = tmp_p_volume
+
+
+
+
+            # #修改版 swin 特殊版
+            # for i in range(1, 5):
+            #     tmp_p_volume = F.interpolate(tmp_p_volume, [round(s/2) for s in tmp_p_volume.shape[2:]],
+            #                 mode='bilinear', align_corners=True)
+            #     #print(tmp_p_volume.shape)
+            #     outputs['{}_pvolume_cost_{}_{}'.format('mono', i, t_side)] = tmp_p_volume
+
+            #vit 特殊版 rn_layers
+            s_orig = tmp_p_volume.shape[2:]  # 保存原始尺寸
+
+            # 计算基准单位 (1/14 的尺寸)
+            base_units = [s // 14 for s in s_orig]
+
+            scale_factors = [4, 2, 1, 1/2]  # 分别对应 1/1.75, 1/3.5, 1/7, 1/14
+
+            for i, factor in enumerate(scale_factors, 1):
+                # 计算目标尺寸为整数
+                target_size = [int(unit * factor) for unit in base_units]
+                
+                # 下采样
+                tmp_p_volume = F.interpolate(tmp_p_volume, target_size,
+                                        mode='bilinear', align_corners=True)
                 outputs['{}_pvolume_cost_{}_{}'.format('mono', i, t_side)] = tmp_p_volume
-    
+
+
+
             # reproject image
             depth = outputs['{}_depth_{}_{}'.format('stereo', 0, t_side)] * self.stereo_SCALE
             frames = [t_side.replace('s', 'o') if 's' in t_side\

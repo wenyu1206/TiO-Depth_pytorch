@@ -79,13 +79,16 @@ def multi_scale_post_process(l_disp, r_down_disp):
 
     return (1 - norm) * l_disp + norm * r_down_disp
 
+import cv2
+import numpy as np
+import os
+
 def predict_one_image(network, inputs, visualizer, save_path, file):
-    outputs = network(inputs, is_train=False)
+    outputs = network.inference_forward(inputs, is_train=False)
     if opts.godard_post_process:
         inputs['color_s'] = torch.flip(inputs['color_s'], dims=[3])
-        flip_outputs = network(inputs, is_train=False)
-        fflip_depth = torch.flip(flip_outputs[('depth', 's')],
-                                dims=[3])
+        flip_outputs = network.inference_forward(inputs, is_train=False)
+        fflip_depth = torch.flip(flip_outputs[('depth', 's')], dims=[3])
         pp_depth = batch_post_process_disparity(
             1 / outputs[('depth', 's')], 1 / fflip_depth)
         pp_depth = 1 / pp_depth
@@ -96,16 +99,15 @@ def predict_one_image(network, inputs, visualizer, save_path, file):
         up_fac = 2/3
         H, W = inputs['color_s'].shape[2:]
         inputs['color_s'] = F.interpolate(inputs['color_s'],
-                                scale_factor=up_fac,
-                                mode='bilinear',
-                                align_corners=True)
-        flip_outputs = network(inputs, is_train=False)
+                                          scale_factor=up_fac,
+                                          mode='bilinear',
+                                          align_corners=True)
+        flip_outputs = network.inference_forward(inputs, is_train=False)
         flip_depth = flip_outputs[('depth', 's')]
         flip_depth = up_fac * F.interpolate(flip_depth,
                                             size=(H, W),
                                             mode='nearest')
-        fflip_depth = torch.flip(flip_depth,
-                                dims=[3])
+        fflip_depth = torch.flip(flip_depth, dims=[3])
         pp_depth = batch_post_process_disparity(
             1 / outputs[('depth', 's')], 1 / fflip_depth)
         pp_depth = 1 / pp_depth
@@ -120,9 +122,28 @@ def predict_one_image(network, inputs, visualizer, save_path, file):
     visual_map['pp_depth'] = pp_depth
     visualizer.update_visual_dict(inputs, outputs, visual_map)
     visualizer.do_visualizion(os.path.splitext(file)[0] + '_visual')
-    pp_depth = pp_depth.squeeze(0).squeeze(0).cpu().numpy()
-    save_path = os.path.join(save_path, os.path.splitext(file)[0] + '_pred.npy')
-    np.save(save_path, pp_depth)
+    
+    # 将深度图转换为 numpy 数组，并打印深度范围
+    pp_depth_np = pp_depth.squeeze(0).squeeze(0).cpu().numpy()
+    min_depth = np.amin(pp_depth_np)
+    max_depth = np.amax(pp_depth_np)
+    print(f"深度范围depth range: {min_depth:.4f} 到 {max_depth:.4f}")
+    
+    # 保存原始深度图 (npy 格式)
+    npy_save_path = os.path.join(save_path, os.path.splitext(file)[0] + '_pred.npy')
+    np.save(npy_save_path, pp_depth_np)
+    
+    # --- 以下部分为额外保存归一化的彩色深度图 ---
+    # 归一化深度图到 [0, 1]
+    depth_norm = (pp_depth_np - min_depth) / (max_depth - min_depth + 1e-8)
+    # 转换为 0-255 的 8-bit 图像
+    depth_uint8 = (depth_norm * 255).astype(np.uint8)
+    # 应用彩色映射，这里使用 COLORMAP_JET，你可以根据需要选择其他映射
+    depth_color = cv2.applyColorMap(depth_uint8, cv2.COLORMAP_JET)
+    
+    # 保存归一化的彩色深度图，建议保存为 PNG 格式
+    color_save_path = os.path.join(save_path, os.path.splitext(file)[0] + '_color.png')
+    cv2.imwrite(color_save_path, depth_color)
 
 def predict():
     # Initialize the random seed and device
@@ -162,7 +183,12 @@ def predict():
     else:
         image_size = opts_dic['pred_size']
     print('->resize image(s) into: {}'.format(image_size))
-    resize = tf.Resize(image_size,interpolation=Image.ANTIALIAS)
+    try:
+        # 新版本 Pillow
+        resize = tf.Resize(image_size, interpolation=Image.Resampling.LANCZOS)
+    except AttributeError:
+        # 旧版本 Pillow
+        resize = tf.Resize(image_size, interpolation=Image.Resampling.LANCZOS)
 
     # Predict
     if opts.godard_post_process or opts.multi_scale_post_process:
@@ -181,6 +207,7 @@ def predict():
             for r, ds, fs in os.walk(opts.image_path):
                 for f in fs:
                     if f.endswith('.png') or f.endswith('.jpg'):
+                        print(f)
                         img = Image.open(os.path.join(r, f))
                         img = img.convert('RGB')
                         img = normalize(to_tensor(resize(img))).unsqueeze(0)
@@ -193,5 +220,108 @@ def predict():
     print('Finish Prediction!')
     print('Prediction files are saved in {}'.format(save_path))
 
+
+def predict_stereo():
+    # Initialize the random seed and device
+    if opts.cpu:
+        device = torch.device('cpu')
+    else:
+        device = torch.device('cuda')
+
+    # Initialize the options
+    opts_dic = read_yaml_options(opts.exp_opts)
+
+    # Initialize the network
+    print('->Load the pretrained model')
+    # print('->model name: {}'.format(opts_dic['model']['type']))
+    print('->pretrained path: {}'.format(opts.trained_model))
+    network = get_model_with_opts(opts_dic, device)
+    network = load_model_for_evaluate(opts.trained_model, network)
+    network.eval()
+
+    if opts.out_dir is not None:
+        os.makedirs(opts.out_dir, exist_ok=True)
+        save_path = opts.out_dir
+    else:
+        if os.path.isfile(opts.image_path):
+            save_path = os.path.dirname(opts.image_path)
+        else:
+            save_path = opts.image_path
+    
+    visualizer = Visualizer(save_path, {'type':{'pp_depth': 'depth'},
+                                        'shape': [['pp_depth']]})
+
+    to_tensor = tf.ToTensor()
+    normalize = tf.Normalize(mean=opts_dic['pred_norm'],
+                             std=[1, 1, 1])
+    if opts.input_size is not None:
+        image_size = opts.input_size
+    else:
+        image_size = opts_dic['pred_size']
+    print('->resize image(s) into: {}'.format(image_size))
+    try:
+        # 新版本 Pillow
+        resize = tf.Resize(image_size, interpolation=Image.Resampling.LANCZOS)
+    except AttributeError:
+        # 旧版本 Pillow
+        resize = tf.Resize(image_size, interpolation=Image.Resampling.LANCZOS)
+
+    # Predict
+    if opts.godard_post_process or opts.multi_scale_post_process:
+        print('->Use the post processing')
+    print('->Start prediction')
+    with torch.no_grad():
+        def readImg(imgpath, filename=None):
+
+            if filename:
+                # 从文件名去掉可能的后缀，方便后面加 _L/_R
+                base_name = os.path.splitext(filename)[0]
+                print(base_name)
+                base_name = base_name.replace('_L', '')
+                # 假设文件以 _L 和 _R 结尾
+                imgL = Image.open(os.path.join(imgpath, f"{base_name}_L.png"))
+                imgR = Image.open(os.path.join(imgpath, f"{base_name}_R.png"))
+                print(imgL.size)
+                print(imgR.size)
+            else:
+                # 对于单个文件路径，直接替换 _L 为 _R
+                base_path = imgpath.replace('_L.png', '')
+                imgL = Image.open(f"{base_path}_L.png")
+                imgR = Image.open(f"{base_path}_R.png")
+                print(imgL.size)
+                print(imgR.szie)
+            
+            # 图像预处理
+            imgL = imgL.convert('RGB')
+            imgR = imgR.convert('RGB')
+            imgL = normalize(to_tensor(resize(imgL))).unsqueeze(0)
+            imgR = normalize(to_tensor(resize(imgR))).unsqueeze(0)
+            
+            return imgL, imgR
+
+        # 主要代码修改
+        if os.path.isfile(opts.image_path):
+            imgL, imgR = readImg(opts.image_path)
+            inputs = {}
+            inputs['color_s'] = imgL.to(device)
+            inputs['color_o'] = imgR.to(device)
+            file = os.path.basename(opts.image_path)
+            predict_one_image(network, inputs, visualizer, save_path, file)
+        else:
+            for r, ds, fs in os.walk(opts.image_path):
+                for f in fs:
+                    # 只处理左图
+                    if (f.endswith('_L.png') or f.endswith('_L.jpg')):
+                        print("reading imgs---,",f)
+                        imgL, imgR = readImg(r, f)
+                        inputs = {}
+                        inputs['color_s'] = imgL.to(device)
+                        inputs['color_o'] = imgR.to(device)
+                        predict_one_image(network, inputs, visualizer, save_path, f)
+
+    print('Finish Prediction!')
+    print('Prediction files are saved in {}'.format(save_path))
+
+
 if __name__ == '__main__':
-    predict()
+    predict_stereo()

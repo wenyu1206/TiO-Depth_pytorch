@@ -8,7 +8,7 @@ from torch.autograd import Variable
 
 
 def metric_depth(pred, gt, median_scale=False, kitti_mask=False,
-                 cityscapes_mask=False, min_depth=0, max_depth=80, in_mask=None):
+                 cityscapes_mask=False, min_depth=0.5, max_depth=80, in_mask=None):
     _, _, h, w = gt.shape
     pred = torch.nn.functional.interpolate(pred, [h, w],
                                            mode='bilinear',

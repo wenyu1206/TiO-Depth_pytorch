@@ -31,7 +31,7 @@ parser.add_argument('--local_rank', type=int, help='local gpu id', default=0)
 parser.add_argument('--name',
                     dest='exp_name',
                     type=str,
-                    required=True,
+                    default='test',
                     help='the name of experiment')
 parser.add_argument('--log_dir',
                     dest='log_dir',
@@ -47,12 +47,12 @@ parser.add_argument('--seed',
 parser.add_argument('--batch_size',
                     dest='batch_size',
                     type=int,
-                    default=4,
+                    default=1,
                     help='# images (pair) in batch')
 parser.add_argument('--num_workers',
                     dest='num_workers',
                     type=int,
-                    default=4,
+                    default=8,
                     help='# of dataloader')
 parser.add_argument('--epoch',
                     dest='epoch',
@@ -62,7 +62,7 @@ parser.add_argument('--epoch',
 
 parser.add_argument('--exp_opts',
                     dest='exp_opts',
-                    required=True,
+                    default='options/TiO-Depth/train/tio_depth-swint-m_384crop256_kittifull_stereo.yaml',
                     help="the yaml file for model's options")
 parser.add_argument('--pretrained_path',
                     dest='pretrained_path',
@@ -301,57 +301,57 @@ class Trainer(object):
             self.visualizer = False
 
         # compute the network flops and inference time
-        if opts.compute_flops:
-            with torch.no_grad():
-                input_size = opts_dic['pred_size']
-                self.network.eval()
-                from thop import profile
-                if self.world_size > 1:
-                    out_modes = self.network.module.out_mode
-                else:
-                    out_modes = self.network.out_mode
-                for used_mode in out_modes:
-                    # generate the input tensor
-                    if used_mode == 'Mono' or used_mode == 'Refine':
-                        input_tensor = torch.rand(1, 3, *input_size)
-                    elif used_mode == 'Stereo':
-                        input_tensor = torch.rand(1, 6, *input_size)
-                    else:
-                        raise NotImplementedError
-                    input_tensor = input_tensor.to(self.device)
+        # if opts.compute_flops:
+        #     with torch.no_grad():
+        #         input_size = opts_dic['pred_size']
+        #         self.network.eval()
+        #         from thop import profile
+        #         if self.world_size > 1:
+        #             out_modes = self.network.module.out_mode
+        #         else:
+        #             out_modes = self.network.out_mode
+        #         for used_mode in out_modes:
+        #             # generate the input tensor
+        #             if used_mode == 'Mono' or used_mode == 'Refine':
+        #                 input_tensor = torch.rand(1, 3, *input_size)
+        #             elif used_mode == 'Stereo':
+        #                 input_tensor = torch.rand(1, 6, *input_size)
+        #             else:
+        #                 raise NotImplementedError
+        #             input_tensor = input_tensor.to(self.device)
 
-                    # compute the flops and parameters with thop
-                    if self.world_size > 1:
-                        self.network.module.used_out_mode = used_mode
-                    else:
-                        self.network.used_out_mode = used_mode
-                    flops, p_nums = profile(self.network,
-                                            inputs=(input_tensor, {})) 
+        #             # compute the flops and parameters with thop
+        #             if self.world_size > 1:
+        #                 self.network.module.used_out_mode = used_mode
+        #             else:
+        #                 self.network.used_out_mode = used_mode
+        #             flops, p_nums = profile(self.network,
+        #                                     inputs=(input_tensor, {})) 
                     
-                    # compute the fps with no more than 1000 iterations
-                    max_iter_num = 1000
-                    inferece_time = []
-                    for i in range(max_iter_num):
-                        st_time = time.time()
-                        _ = self.network(input_tensor, {})
-                        temp_time = time.time() - st_time
-                        inferece_time.append(temp_time)
-                        if (i + 1) % 25 == 0 and\
-                            len(inferece_time) >=100:
-                            _time = inferece_time[-100:]
-                            if np.std(_time) / np.mean(_time) < 0.005:
-                                break  
+        #             # compute the fps with no more than 1000 iterations
+        #             max_iter_num = 1000
+        #             inferece_time = []
+        #             for i in range(max_iter_num):
+        #                 st_time = time.time()
+        #                 _ = self.network(input_tensor, {})
+        #                 temp_time = time.time() - st_time
+        #                 inferece_time.append(temp_time)
+        #                 if (i + 1) % 25 == 0 and\
+        #                     len(inferece_time) >=100:
+        #                     _time = inferece_time[-100:]
+        #                     if np.std(_time) / np.mean(_time) < 0.005:
+        #                         break  
                     
-                    gpu_name = torch.cuda.get_device_name(self.device)
-                    self.logger.log_for_flops_etc(list(input_tensor.shape),
-                                                  used_mode,
-                                                  flops,
-                                                  p_nums,
-                                                  gpu_name,
-                                                  np.mean(inferece_time),
-                                                  np.mean(inferece_time[-100:]),
-                                                  i + 1,
-                                                  max_iter_num)
+        #             gpu_name = torch.cuda.get_device_name(self.device)
+        #             self.logger.log_for_flops_etc(list(input_tensor.shape),
+        #                                           used_mode,
+        #                                           flops,
+        #                                           p_nums,
+        #                                           gpu_name,
+        #                                           np.mean(inferece_time),
+        #                                           np.mean(inferece_time[-100:]),
+        #                                           i + 1,
+        #                                           max_iter_num)
 
 
     def _set_all_seed(self, seed):
@@ -455,6 +455,7 @@ class Trainer(object):
         with torch.no_grad():
             self._test_model()
         self.epoch += 1
+        torch.cuda.empty_cache()
         while self.epoch <= opts.epoch:
             st_epoch_time = time.time()
             # start training
@@ -486,6 +487,7 @@ class Trainer(object):
 
             self.network.train()
             self.epoch += 1
+            torch.cuda.empty_cache()
 
 
 if __name__ == '__main__':

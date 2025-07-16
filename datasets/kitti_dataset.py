@@ -175,7 +175,7 @@ class KITTIColorDepthDataset(data.Dataset):
         else:
             if self.full_size is not None:
                 self.color_resize = tf.Resize(full_size,
-                                              interpolation=Image.ANTIALIAS)
+                                              interpolation=Image.Resampling.LANCZOS)
             else:
                 self.color_resize = NoneTransform()
 
@@ -415,7 +415,7 @@ class KITTIColorDepthDataset(data.Dataset):
             if scale_factor != 1 or self.full_size is not None:
                 random_size = tuple(int(s * scale_factor) for s in img_size)
                 self.color_resize = tf.Resize(random_size,
-                                              interpolation=Image.ANTIALIAS)
+                                              interpolation=Image.Resampling.LANCZOS)
                 if self.multi_out_scale is not None:
                     self.multi_resize = {}
                     if self.patch_size is not None:
@@ -425,7 +425,7 @@ class KITTIColorDepthDataset(data.Dataset):
                     for scale in self.multi_out_scale:
                         s = 2 ** scale
                         self.multi_resize[scale] = tf.Resize([x // s for x in base_size],
-                                                         interpolation=Image.ANTIALIAS)
+                                                         interpolation=Image.Resampling.LANCZOS)
                 
                 self.depth_resize = tf.Resize(random_size,
                                               interpolation=Image.NEAREST)

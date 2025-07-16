@@ -9,7 +9,23 @@ local*/*
 run*.sh
 
 eval_res/*
+kitti/*
+example_img/*
+dav2_logs/*
+logs/*
+melo_logs/*
+encoder_feature_test/*
+stereo_sample/*
+Depth-Anything-V2/assets/*
 
 path_my.py
 
 pretrained_models/*
+
+annoted/*
+
+flsea-stereo/*
+
+*.pth
+*.log
+*.zip

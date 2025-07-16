@@ -54,6 +54,7 @@ class DPDecoder(nn.Module):
             dec_conv_in_dict[(i, 0)] = num_ch_in
             dec_conv_out_dict[(i, 0)] = num_ch_out
             self.convblocks[("dec", i, 0)] = ConvBlock(num_ch_in, num_ch_out)
+            #print("ININ OUTOUT",num_ch_enc,num_ch_in,num_ch_out)
             # upconv_1
             num_ch_in = num_ch_dec[i]
             if idx_feats >= 0:
@@ -134,7 +135,8 @@ class DPDecoder(nn.Module):
         self.convblocks[("midout-out", 0)] = Conv3x3(num_ch_dec[0], mid_out_ch)
         
         self._convs = nn.ModuleList(list(self.convblocks.values()))
-    
+        
+        
     def forward(self, features, img_shape, directs=None, out_two_side=False, with_mo=True):
         if isinstance(features[0], list):
             outputs, costs= self.forward_stereo(features, img_shape, directs, out_two_side)
@@ -150,6 +152,11 @@ class DPDecoder(nn.Module):
         return outputs, costs
     
     def forward_stereo(self, features, img_shape, directs, out_two_side=False):
+        #print("forward_stereo",img_shape)
+        #for ele in features:
+        #    print('=====================')
+        #    for ele1 in ele:
+        #        print(ele1.shape)
         outputs = {}
         costs = {} 
         x_s = features[-1][0]
@@ -184,6 +191,8 @@ class DPDecoder(nn.Module):
 
                     x_o = x_o[0]
                     x_o_enc = self.convblocks[("dec-sdfa", i, 0)](features[idx_feats][1])
+                   
+                    
                     x_o_con = torch.cat((x_o, x_o_enc), 1)
                     delta1_o = self.convblocks[("dec-sdfa", i, 1)](x_o_con)
                     x_o = self.bilinear_interpolate_torch_gridsample(
@@ -228,6 +237,7 @@ class DPDecoder(nn.Module):
         return outputs, costs
     
     def forward_mono(self, features, img_shape, with_mo):
+        
         outputs = {}
         x_s = features[-1]
         idx_feats = self.num_enc_feats - 1
@@ -244,6 +254,8 @@ class DPDecoder(nn.Module):
                                     self.convblocks[("midout", i, 0)].deform_groups)
                 x_s = self.convblocks[("dec", i, 0)](x_s, wo_conv=True)
             else:
+                
+                #a == 0 
                 x_s = self.convblocks[("dec", i, 0)](x_s)
 
             if idx_feats >= 0:
@@ -282,6 +294,7 @@ class DPDecoder(nn.Module):
             x_s = torch.cat(x_s, 1)
 
             if i in self.db_scales and with_mo and self.db_mode == 'DeformConv':
+                print("DEFORM=================")
                 offset = self.convblocks[("midout", i, 1)](x_s)
                 deform_conv2d = DeformConv2dFunction.apply
                 x_s = deform_conv2d(x_s, offset, 
@@ -305,7 +318,10 @@ class DPDecoder(nn.Module):
                     else:
                         out_middisp = self.convblocks[("out", 0)](x_s)
                     outputs['{}-mid'.format(i)] = out_middisp
-
+        #print('Forward Mono Done',outputs.keys())
+        #for ele in outputs.keys():
+        #    print(outputs[ele].shape)
+        
         return outputs
     
     def _upsample(self, x, shape, is_bilinear=False):
@@ -344,8 +360,15 @@ class Conv3x3(nn.Module):
         self.conv = nn.Conv2d(int(in_channels), int(out_channels), 3, bias=bias)
 
     def forward(self, x):
+        
         out = self.pad(x)
+        
         out = self.conv(out)
+        # print(self.conv)
+        # print(x.shape)
+        # print(out.shape)
+        # print("==================")
+        
         return out
 
 class ConvBlock(nn.Module):
@@ -366,8 +389,11 @@ class ConvBlock(nn.Module):
             self.bn = None
 
     def forward(self, x, wo_conv=False):
+        
         if not wo_conv:
+            
             out = self.conv(x)
+            
         else:
             out = x
         if self.bn is not None:

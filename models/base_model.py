@@ -86,6 +86,7 @@ class Base_of_Model(nn.Module):
         raise NotImplementedError
 
     def _compute_losses(self, sides, outputs, losses, add_loss=True):
+        
         loss_inputs = {}
         for out_key, out_vlaue in outputs.items():
             loss_inputs[out_key] = out_vlaue
@@ -95,8 +96,8 @@ class Base_of_Model(nn.Module):
         loss_terms = self.loss_computer[self.now_group_name]
         losses[self.now_group_name + '-loss'] = 0
         for train_side in sides:
-            for loss_name, (used_loss, loss_rate, loss_mask) in\
-                loss_terms.items():
+            for loss_name, (used_loss, loss_rate, loss_mask) in loss_terms.items():
+                
                 loss = used_loss(loss_inputs, train_side)
                 if loss_mask is not None:
                     mask = loss_inputs[loss_mask.format(train_side)]

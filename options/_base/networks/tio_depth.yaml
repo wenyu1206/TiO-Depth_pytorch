@@ -6,7 +6,7 @@ model:
     min_disp: 2
     max_disp: 300
     d2d: 400.9
-    image_size: [256, 832]
+    image_size: [252, 840]
     set_train_side: 'o'
     decoder_name: StereoDecV9-3-2-1_3_2_1*MFM*FinalBranch*SDFARaw
     downscale_occ: True
@@ -16,5 +16,5 @@ model:
     discrete_warp: True
     params_trained: Unified-BB*1-CA*1+DE*0.1-MO*1+DE*0.1
     
-pred_size: [384, 1280]
+pred_size: [378, 1260]
 pred_norm: [0, 0, 0]

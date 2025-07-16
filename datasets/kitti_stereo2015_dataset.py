@@ -143,7 +143,7 @@ class KITTIColorStereoDataset(data.Dataset):
 
         if self.full_size is not None:
             self.color_resize = tf.Resize(full_size,
-                                            interpolation=Image.ANTIALIAS)
+                                            interpolation=Image.Resampling.LANCZOS)
             self.depth_resize = tf.Resize(full_size,
                                             interpolation=Image.NEAREST)
         else:
