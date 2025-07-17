@@ -9,6 +9,7 @@ from models.backbones.resnet import ResNet_Backbone
 from models.backbones.swin import get_orgwintrans_backbone
 from models.backbones.dinov2_dpt import get_dinov2_dpt_backbone
 from models.backbones.dav2_melo import get_dav2_melo_backbone
+from models.backbones.dav2_codyra import get_dav2_codyra_backbone
 from models.base_model import Base_of_Model
 from models.decoders.dual_path_decoder import DPDecoder
 from utils import platform_manager
@@ -81,6 +82,10 @@ class TiO_Depth(Base_of_Model):
         elif 'melo' in encoder_name.lower():
             self.net_module['encoder'], enc_ch_num = get_dav2_melo_backbone(
                 encoder_name, True, 4, 4)
+            enc_ch_num = copy.deepcopy(enc_ch_num)
+        elif 'codyra' in encoder_name.lower():
+            self.net_module['encoder'], enc_ch_num = get_dav2_codyra_backbone(
+                encoder_name, True, 16, 0.005, 1e-4, 20, 0.5)
             enc_ch_num = copy.deepcopy(enc_ch_num)
         elif 'dinov2' in encoder_name.lower():
             self.net_module['encoder'], enc_ch_num = get_dinov2_dpt_backbone(
