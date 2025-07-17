@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import copy
 import warnings
+from pathlib import Path
 
 # 添加Depth-Anything-V2到路径
 depth_anything_path = 'Depth-Anything-V2'
@@ -348,7 +349,7 @@ def get_dinov2_dpt_backbone(backbone_name='dinov2b', pretrained=True):
         'dinov2l': 'vitl',
         'dinov2g': 'vitg'
     }
-    
+
     # 使用与Depth-Anything-V2 run.py相同的模型配置
     model_configs = {
         'vits': {'features': 64, 'out_channels': [48, 96, 192, 384]},
@@ -356,19 +357,19 @@ def get_dinov2_dpt_backbone(backbone_name='dinov2b', pretrained=True):
         'vitl': {'features': 256, 'out_channels': [256, 512, 1024, 1024]},
         'vitg': {'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
     }
-    
+
     encoder_type = encoder_type_map.get(backbone_name, 'vitb')
-    
+
     # 从模型配置中获取特征数和输出通道
     config = model_configs[encoder_type]
     features = config['features']
     out_channels = config['out_channels']
     print('========================')
-    
+
     print(f"初始化 DINOv2+DPT ({encoder_type}):")
     print(f"  features: {features}")
     print(f"  out_channels: {out_channels}")
-    
+
     # 创建模型
     model = DINOv2_DPT_Backbone(
         encoder_type=encoder_type,
@@ -376,8 +377,16 @@ def get_dinov2_dpt_backbone(backbone_name='dinov2b', pretrained=True):
         out_channels=[96,192,384,768],
         use_clstoken=False
     )
-    model.load_state_dict(torch.load(f'/home/ywan0794@acfr.usyd.edu.au/Depth-Anything-V2/checkpoints/depth_anything_v2_vitb.pth', map_location='cpu'))
-    
+
+    pth_path = (
+        Path(os.getcwd())
+        / "Depth-Anything-V2"
+        / "checkpoints"
+        / "depth_anything_v2_vitb.pth"
+    )
+
+    model.load_state_dict(torch.load(pth_path, map_location='cpu'))
+
     # 输出的通道数列表
     enc_ch_num = [features] * 4
     if encoder_type == 'vitb':

@@ -119,7 +119,11 @@ parser.add_argument('--best_compute',
                     type=str,
                     default='depth_kitti',
                     help='metric for selecting best model')
-
+parser.add_argument("--freeze_lora",
+                    dest="freeze_lora",
+                    type=bool,
+                    default=False,
+                    help="freeze LoRA layers when starting second param group",)
 
 
 opts = parser.parse_args()
@@ -155,7 +159,7 @@ class Trainer(object):
                                           device=self.device)
             dist.broadcast(random_num, src=0)
             seed = random_num.item()
-        
+
         self._set_all_seed(seed)
         self.seed = seed
 
@@ -192,7 +196,7 @@ class Trainer(object):
                                      num_workers=opts.num_workers,
                                      shuffle=False,
                                      pin_memory=True)
-    
+
         self.logger.log_for_data(train_dataset.dataset_info,
                                  val_dataset.dataset_info,
                                  len(self.train_loader),
@@ -241,20 +245,23 @@ class Trainer(object):
             self.network.train_forward = self.network.module.train_forward
             self.network.inference_forward = self.network.module.inference_forward
             self.network.module.ddp_forward = self.network.forward
-        
+
         # Initialize the optimizers and the schedulers
         if self.world_size > 1:
             param_groups = self.network.module.get_parameters()
         else:
             param_groups = self.network.get_parameters()
-        
+
         self.optimizers = {}
+        self.param_group_names = list(param_groups.keys())
+        self.lora_frozen = False
+
         for group_name, (group_settings, st_epoch) in param_groups.items():
             optim_info = opts_dic['losses'][group_name]['optim']
             for setting in group_settings:
                 if 'lr' in setting:
                     setting['lr'] *= optim_info['lr']
-                
+
             if optim_info['type'] == 'Adam':
                 optimizer = optim.Adam(group_settings,
                                        optim_info['lr'],
@@ -268,7 +275,7 @@ class Trainer(object):
                 scheduler = sched.MultiStepLR(optimizer, 
                                               **sched_info['params'])
             self.optimizers[group_name] = (optimizer, scheduler, st_epoch)
-        
+
         # Load the optimizers
         if opts.start_epoch is not None:
             self.epoch = opts.start_epoch
@@ -278,7 +285,7 @@ class Trainer(object):
                 temp_epoch += 1
                 for group_name, _ in self.optimizers.items():
                     self.optimizers[group_name][1].step()
-            
+
         else:
             if opts.pretrained_path is not None:
                 (self.optimizers,
@@ -290,7 +297,7 @@ class Trainer(object):
             else:
                 self.epoch = 1
                 self.batch_step = 1      
-        
+
         # Initialize the visualizer
         if 'visual' in opts_dic:
             self.visualizer = Visualizer(os.path.join(self.logger.get_log_dir,
@@ -326,8 +333,8 @@ class Trainer(object):
         #             else:
         #                 self.network.used_out_mode = used_mode
         #             flops, p_nums = profile(self.network,
-        #                                     inputs=(input_tensor, {})) 
-                    
+        #                                     inputs=(input_tensor, {}))
+
         #             # compute the fps with no more than 1000 iterations
         #             max_iter_num = 1000
         #             inferece_time = []
@@ -340,8 +347,8 @@ class Trainer(object):
         #                     len(inferece_time) >=100:
         #                     _time = inferece_time[-100:]
         #                     if np.std(_time) / np.mean(_time) < 0.005:
-        #                         break  
-                    
+        #                         break
+
         #             gpu_name = torch.cuda.get_device_name(self.device)
         #             self.logger.log_for_flops_etc(list(input_tensor.shape),
         #                                           used_mode,
@@ -353,20 +360,27 @@ class Trainer(object):
         #                                           i + 1,
         #                                           max_iter_num)
 
-
     def _set_all_seed(self, seed):
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         np.random.seed(seed)
         random.seed(seed)
-    
+
     def _stable(self, dataloader, seed):
         self._set_all_seed(seed)
         return dataloader
 
     def _process_epoch(self):
         st_batch_time = time.time()
+
+        if opts.freeze_lora and not self.lora_frozen:
+            active_groups = [name for name, (_, _, st_epoch) in self.optimizers.items() if self.epoch >= st_epoch]
+            if len(active_groups) > 1:
+                print("Freeze LoRA Layers")
+                self.network.net_module["encoder"].stop_lora()
+                self.lora_frozen = True
+
         for inputs in self._stable(self.train_loader, self.seed + self.epoch):
             for ipt_key, ipt in inputs.items():
                 if isinstance(ipt, torch.Tensor):
@@ -375,7 +389,7 @@ class Trainer(object):
             outputs, losses, times = self.network.train_forward(inputs,
                                                                 self.optimizers,
                                                                 self.epoch)
-            
+
             # stop the training if loss is nan
             if self.world_size != 1:
                 with torch.no_grad():
@@ -444,10 +458,9 @@ class Trainer(object):
 
             self.logger.log_for_test(metric_item.get_metric_output(), is_best, sou_name)
             metric_item.clear_metric()
-        
+
         if self.world_size > 1:
             dist.barrier()
-
 
     def do_train(self):
         self.logger.log_for_start_testing()

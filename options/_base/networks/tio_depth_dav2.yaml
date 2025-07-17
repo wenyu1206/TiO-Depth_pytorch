@@ -6,7 +6,7 @@ model:
     min_disp: 2
     max_disp: 300
     d2d: 485.8
-    image_size: [252, 840]
+    image_size: [392, 812]
     set_train_side: 'o'
     decoder_name: StereoDecV9-3-2-1_3_2_1*MFM*FinalBranch*SDFARaw
     downscale_occ: True

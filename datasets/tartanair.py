@@ -357,7 +357,7 @@ class TartanairDataset(data.Dataset):
         img_side = info_part[2]
         
         base_path_list = []
-        base_path = base_path = os.path.join(
+        base_path = os.path.join(
             self.dataset_dir, data_dir, '{}', 
             'data', 
             '{:06d}'.format(int(data_idx)) + '.png'

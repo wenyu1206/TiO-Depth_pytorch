@@ -87,7 +87,7 @@ class DAv2_MeLo_Backbone(nn.Module):
                 alpha
             )
             print("MeLo layer added")
-            
+
         self.reset_parameters()
         self.dav2_melo = dav2_model
 
@@ -96,7 +96,14 @@ class DAv2_MeLo_Backbone(nn.Module):
             nn.init.kaiming_uniform_(w_A.weight, a=math.sqrt(5))
         for w_B in self.w_Bs:
             nn.init.zeros_(w_B.weight)
-    
+
+    def stop_lora(self):
+        """Freeze all LoRA layers by setting requires_grad = False"""
+        for layer in self.w_As + self.w_Bs:
+            for param in layer.parameters():
+                param.requires_grad = False
+        print("All LoRA layers frozen")
+
     def forward(self, x):
         return self.dav2_melo(x)
 

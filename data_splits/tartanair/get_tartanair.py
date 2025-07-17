@@ -3,7 +3,9 @@ import random
 
 root_dir = Path('/home/ywan0794@acfr.usyd.edu.au/tartanair_tools/tartanair_kitti')
 
-subfolders = [item for item in root_dir.iterdir() if item.is_dir()]
+subfolders = [
+    item for item in root_dir.iterdir() if item.is_dir() and "soulcity" not in item.name
+]
 
 all_samples = []
 easy_samples = []
@@ -18,7 +20,7 @@ for i, subfolder in enumerate(subfolders):
     file_names = [file.name for file in img_lft_dir.iterdir() if file.is_file()]
     
     for file_name in file_names:
-        idx = file_name[:-4].lstrip('0')
+        idx = file_name[:-4].lstrip('0') or '0'
         line = f"{sample_path.relative_to(root_dir)} {idx} l"
         all_samples.append(line)
         
