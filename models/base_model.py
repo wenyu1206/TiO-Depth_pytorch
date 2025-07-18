@@ -27,7 +27,7 @@ class Base_of_Model(nn.Module):
     def _initialize_model(self):
         raise NotImplementedError
 
-    def train_forward(self, inputs, optimizers, epoch):
+    def train_forward(self, inputs, optimizers, epoch, codyra_encoder=None):
         self.is_train = True
         self.now_group_idx = 0
         self.inputs = inputs
@@ -53,11 +53,11 @@ class Base_of_Model(nn.Module):
             else:
                 _, outputs = self.forward(x, outputs)
             loss_sides, outputs = self._postprocess_outputs(outputs)
-            losses = self._compute_losses(loss_sides, outputs, losses)
+            losses = self._compute_losses(loss_sides, outputs, losses, codyra_encoder=codyra_encoder)
             _st_bp = time.time()
             if losses[group_name + '-loss'] != 0:
                 self._optim_params(optimizers[group_name][0],
-                                losses[group_name + '-loss'])
+                                losses[group_name + '-loss'], codyra_encoder=codyra_encoder)
             times['fp_time'] += _st_bp - _st_fp
             times['bp_time'] += time.time() - _st_bp
             self.now_group_idx += 1
@@ -85,7 +85,7 @@ class Base_of_Model(nn.Module):
     def _postprocess_outputs(self, inputs, outputs):
         raise NotImplementedError
 
-    def _compute_losses(self, sides, outputs, losses, add_loss=True):
+    def _compute_losses(self, sides, outputs, losses, add_loss=True, codyra_encoder=None):
         
         loss_inputs = {}
         for out_key, out_vlaue in outputs.items():
@@ -115,6 +115,11 @@ class Base_of_Model(nn.Module):
                 losses['{}/{}'.format(loss_name, train_side)] = loss
                 losses['{}/{}-value'.format(train_side, loss_name)] = record_mean
         
+        # Add sparsity loss for codyra
+        if codyra_encoder is not None:
+            sparsity_loss = codyra_encoder.compute_sparsity_loss()
+            losses[self.now_group_name + '-loss'] += sparsity_loss
+        
         return losses
     
     # def _add_final_losses(self, train_side, losses):
@@ -125,7 +130,7 @@ class Base_of_Model(nn.Module):
     #         losses[self.now_group_name + '-loss'] += loss_value
     #         losses['loss'] += loss_value.detach()
     
-    def _optim_params(self, optimizer, loss):
+    def _optim_params(self, optimizer, loss, codyra_encoder=None):
         optimizer.zero_grad()
         if self.ddp_rank != -1:
             with torch.no_grad():
@@ -139,6 +144,12 @@ class Base_of_Model(nn.Module):
                 params = params['params']
                 torch.nn.utils.clip_grad_norm_(params,
                                                max_norm=self.clip_grad)
+        
+        # updata codyra importance weights
+        if codyra_encoder is not None:
+            lr = optimizer.param_groups[0]['lr']
+            codyra_encoder.update_iws(lr)
+        
         optimizer.step()
 
     def get_parameters(self):

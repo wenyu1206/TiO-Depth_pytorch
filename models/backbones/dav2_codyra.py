@@ -92,6 +92,13 @@ class _CoDyRA_qkv_timm(nn.Module):
         self._update_i_w(lr_tensor, kappa, self.i_w_q)
         self._update_i_w(lr_tensor, kappa, self.i_w_k)
         self._update_i_w(lr_tensor, kappa, self.i_w_v)
+    
+    def get_active_ranks(self):
+        active_ranks = []
+        active_ranks.append(sum(self.i_w_q != 0))
+        active_ranks.append(sum(self.i_w_k != 0))
+        active_ranks.append(sum(self.i_w_v != 0))
+        return active_ranks
 
     def forward(self, x):
         qkv = self.qkv(x)  # B,N,3*org_C
@@ -182,6 +189,9 @@ class _CoDyRA_linear(nn.Module):
             )
             self.i_w.copy_(w_updated)
             self.i_w.grad.zero_()
+    
+    def get_active_ranks(self):
+        return sum(self.i_w != 0)
 
     def forward(self, x):
         linear_output = self.linear_layer(x)
@@ -363,8 +373,10 @@ class DAv2_CoDyRA_Backbone(nn.Module):
         del self.w_As
         del self.w_Bs
         del self.i_ws
+        print("CoDyRA merged and deleted")
 
     def update_iws(self, lr):
+        active_ranks = []
         for t_layer_i, blk in enumerate(self.dav2_codyra.pretrained.blocks):
             # If we only want few lora layer instead of all
             if t_layer_i not in self.lora_layer:
@@ -373,6 +385,12 @@ class DAv2_CoDyRA_Backbone(nn.Module):
             blk.attn.qkv.update_iws(lr)
             blk.mlp.fc1.update_iw(lr)
             blk.mlp.fc2.update_iw(lr)
+            
+            active_ranks.extend(blk.attn.qkv.get_active_ranks())
+            active_ranks.append(blk.mlp.fc1.get_active_ranks())
+            active_ranks.append(blk.mlp.fc2.get_active_ranks())
+
+        print(f"Min rank numbers: {min(active_ranks)}")
 
     def compute_sparsity_loss(self):
         """Compute total sparsity loss for all CoDyRA layers"""

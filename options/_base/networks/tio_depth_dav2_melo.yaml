@@ -16,5 +16,5 @@ model:
     discrete_warp: True
     params_trained: Unified-BB*1-CA*1+DE*0.1-MO*1+DE*0.1
     
-pred_size: [616, 1218]
+pred_size: [588, 1218]
 pred_norm: [0, 0, 0]

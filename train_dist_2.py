@@ -124,6 +124,11 @@ parser.add_argument("--freeze_lora",
                     type=bool,
                     default=False,
                     help="freeze LoRA layers when starting second param group",)
+parser.add_argument("--is_codyra",
+                    dest="is_codyra",
+                    type=bool,
+                    default=False,
+                    help="check if using encoder with codyra",)
 
 
 opts = parser.parse_args()
@@ -386,7 +391,13 @@ class Trainer(object):
                 if isinstance(ipt, torch.Tensor):
                     inputs[ipt_key] = ipt.to(self.device, non_blocking=True)
             data_time = time.time() - st_batch_time
-            outputs, losses, times = self.network.train_forward(inputs,
+            if opts.is_codyra and not self.lora_frozen:
+                outputs, losses, times = self.network.train_forward(inputs,
+                                                                self.optimizers,
+                                                                self.epoch,
+                                                                self.network.net_module["encoder"])
+            else:
+                outputs, losses, times = self.network.train_forward(inputs,
                                                                 self.optimizers,
                                                                 self.epoch)
 

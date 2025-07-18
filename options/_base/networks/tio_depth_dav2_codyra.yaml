@@ -1,7 +1,7 @@
 model:
   type: TiO_Depth
   params:
-    encoder_name: dinov2b
+    encoder_name: dinov2bcodyra
     decoder_ch_num: [64, 128, 256, 256]
     min_disp: 2
     max_disp: 300
