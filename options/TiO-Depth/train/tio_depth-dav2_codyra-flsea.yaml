@@ -198,6 +198,6 @@ visual:
           [cost_disp_1-s, cost_disp_1-o],
           [Refine_hints/s, plane_mask_s]]
 
-_train: options/_base/datasets/flsea/train_400.yaml
-_val: options/_base/datasets/flsea/test_100.yaml
+_train: options/_base/datasets/flsea/train_192.yaml
+_val: options/_base/datasets/flsea/test_192.yaml
 _base: options/_base/networks/tio_depth_dav2_codyra.yaml
