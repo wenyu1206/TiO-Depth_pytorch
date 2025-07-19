@@ -78,6 +78,9 @@ class _CoDyRA_qkv_timm(nn.Module):
     def update_iws(self, lr: float):
         if self.dense_epoch > 0:
             self.dense_epoch -= 1
+            self.i_w_q.grad.zero_()
+            self.i_w_k.grad.zero_()
+            self.i_w_v.grad.zero_()
             return
 
         self.current_sparse_epoch += 1
@@ -92,7 +95,7 @@ class _CoDyRA_qkv_timm(nn.Module):
         self._update_i_w(lr_tensor, kappa, self.i_w_q)
         self._update_i_w(lr_tensor, kappa, self.i_w_k)
         self._update_i_w(lr_tensor, kappa, self.i_w_v)
-    
+
     def get_active_ranks(self):
         active_ranks = []
         active_ranks.append(sum(self.i_w_q != 0))
@@ -168,6 +171,7 @@ class _CoDyRA_linear(nn.Module):
     def update_iw(self, lr: float):
         if self.dense_epoch > 0:
             self.dense_epoch -= 1
+            self.i_w.grad.zero_()
             return
 
         self.current_sparse_epoch += 1
@@ -189,7 +193,7 @@ class _CoDyRA_linear(nn.Module):
             )
             self.i_w.copy_(w_updated)
             self.i_w.grad.zero_()
-    
+
     def get_active_ranks(self):
         return sum(self.i_w != 0)
 
